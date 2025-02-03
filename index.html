@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Outdoor Air Quality Data</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f4;
+        margin: 20px;
+      }
+      #outdoorChart,
+      #noiseChart {
+        width: 100%;
+        height: 750px;
+        margin-bottom: 50px;
+      }
+      .latest-entry {
+        margin-top: 10px;
+        font-size: 16px;
+        color: #333;
+      }
+      .offline {
+        color: red;
+        font-weight: bold;
+      }
+      footer {
+        text-align: center;
+        margin-top: 30px;
+        font-size: 14px;
+        color: #777;
+      }
+      footer a {
+        text-decoration: none;
+        color: #777;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Outdoor Nodes - Air Quality Data</h1>
+    <div id="outdoorChart"></div>
+    <div id="noiseChart"></div>
+    <div id="outdoorLatestEntries"></div>
+
+    <script>
+      // Function to fetch data from ThingSpeak
+      async function fetchData(channelID, apiKey) {
+        const url = `https://api.thingspeak.com/channels/${channelID}/feeds.json?api_key=${apiKey}&results=1000`;
+        const response = await fetch(url);
+        const data = await response.json();
+        return data.feeds || [];
+      }
+
+      function averageData(feeds) {
+        const averages = {};
+        const now = new Date();
+        const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000); // 48 hours back
+
+        feeds.forEach((feed) => {
+          const date = new Date(feed.created_at);
+          if (date >= twoDaysAgo) {
+            // Consider only the last 2 days of data
+            // Round down to the nearest 30-minute interval
+            const minutes = date.getMinutes();
+            const roundedMinutes = minutes - (minutes % 30); // Round to 30-minute blocks
+            const timeKey = new Date(date);
+            timeKey.setMinutes(roundedMinutes, 0, 0); // Set seconds and milliseconds to 0
+
+            const timeKeyStr = timeKey.toISOString();
+
+            if (!averages[timeKeyStr]) {
+              averages[timeKeyStr] = { pm25: [], pm10: [], noise: [] };
+            }
+
+            averages[timeKeyStr].pm25.push(parseFloat(feed.field3)); // PM2.5
+            averages[timeKeyStr].pm10.push(parseFloat(feed.field4)); // PM10
+            averages[timeKeyStr].noise.push(parseFloat(feed.field5)); // Noise (dB)
+          }
+        });
+
+        // Calculate averages
+        return Object.entries(averages).map(([time, values]) => ({
+          created_at: time,
+          field3: values.pm25.length
+            ? (
+                values.pm25.reduce((a, b) => a + b) / values.pm25.length
+              ).toFixed(2)
+            : null,
+          field4: values.pm10.length
+            ? (
+                values.pm10.reduce((a, b) => a + b) / values.pm10.length
+              ).toFixed(2)
+            : null,
+          field5: values.noise.length
+            ? (
+                values.noise.reduce((a, b) => a + b) / values.noise.length
+              ).toFixed(2)
+            : null,
+        }));
+      }
+
+      // Function to format date to IST
+      function formatDateToIST(dateString) {
+        const options = {
+          timeZone: "Asia/Kolkata",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        };
+        return new Intl.DateTimeFormat("en-IN", options).format(
+          new Date(dateString)
+        );
+      }
+
+      // Function to check if a node is offline
+      function isOffline(lastEntryTime) {
+        const now = new Date();
+        const entryTime = new Date(lastEntryTime);
+        const diff = (now - entryTime) / 60000; // in minutes
+        return diff > 30; // 30 minutes threshold
+      }
+
+      // Function to plot outdoor data and display latest entries
+      async function plotData() {
+        const outdoorChannels = [
+          { id: "885762", apiKey: "8EIKT7PNVDTAQJVE", label: "Guest_House" },
+          { id: "937750", apiKey: "EWD8UER61NQ0ZRTJ", label: "Felicity" },
+          { id: "938513", apiKey: "O4WW98W6765MA9JA", label: "OBH" },
+          { id: "939888", apiKey: "QQHMD7VBXNLCSWOV", label: "Maingate" },
+          { id: "944545", apiKey: "L0T1ZU83RF0GK9V7", label: "Library" },
+          { id: "944798", apiKey: "8YB4CCP2H3ULN2TW", label: "FSQ" },
+          { id: "945028", apiKey: "FZFLE7SUCGYRYIBW", label: "Football" },
+          { id: "947311", apiKey: "60NLXBD7BWW10LRV", label: "T-Hub" },
+          { id: "1099442", apiKey: "ZOX2IGXJYFIRESI3", label: "PH-3" },
+          { id: "2266784", apiKey: "103XV3U11MJZBZ5P", label: "PH-4" },
+          { id: "2718174", apiKey: "FKHAKO06O5KCKXPV", label: "Block_N" },
+        ];
+
+        const outdoorTraces = [];
+        const noiseTraces = [];
+        const colors = [
+          "#1f77b4",
+          "#ff7f0e",
+          "#2ca02c",
+          "#d62728",
+          "#9467bd",
+          "#8c564b",
+          "#e377c2",
+          "#7f7f7f",
+          "#ff1493",
+          "#8b0a1a",
+          "#87CEEB",
+        ];
+
+        async function processChannel(
+          channel,
+          outdoorTraces,
+          noiseTraces,
+          colorIndex
+        ) {
+          const feeds = await fetchData(channel.id, channel.apiKey);
+          const now = new Date();
+          const twoDaysAgo = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+
+          // Display latest entry
+          if (feeds.length > 0) {
+            const latestFeed = feeds[feeds.length - 1];
+            const latestEntryDiv = document.createElement("div");
+            latestEntryDiv.className = "latest-entry";
+            const latestTime = formatDateToIST(latestFeed.created_at);
+            const offlineStatus = isOffline(latestFeed.created_at)
+              ? '<span class="offline">(OFFLINE)</span>'
+              : "";
+            latestEntryDiv.innerHTML = `<strong>${channel.label} Latest Entry:</strong> PM2.5 - ${latestFeed.field3} µg/m³ | PM10 - ${latestFeed.field4} µg/m³ | Noise - ${latestFeed.field5} dB | Time - ${latestTime} ${offlineStatus}`;
+            document
+              .getElementById("outdoorLatestEntries")
+              .appendChild(latestEntryDiv);
+          }
+
+          const averagedFeeds = averageData(feeds);
+          const filteredFeeds = averagedFeeds.filter(
+            (feed) => new Date(feed.created_at) >= twoDaysAgo
+          );
+
+          const timestamps = filteredFeeds.map(
+            (feed) => new Date(feed.created_at)
+          );
+          const pm25 = filteredFeeds.map((feed) => parseFloat(feed.field3));
+          const pm10 = filteredFeeds.map((feed) => parseFloat(feed.field4));
+          const noise = filteredFeeds.map((feed) => parseFloat(feed.field5));
+
+          outdoorTraces.push({
+            x: timestamps,
+            y: pm25,
+            mode: "lines+markers",
+            name: `${channel.label} PM2.5`,
+            line: { color: colors[colorIndex] },
+            marker: { symbol: "triangle", size: 8 },
+          });
+
+          outdoorTraces.push({
+            x: timestamps,
+            y: pm10,
+            mode: "lines+markers",
+            name: `${channel.label} PM10`,
+            line: { color: colors[colorIndex] },
+            marker: { symbol: "square", size: 8 },
+          });
+
+          noiseTraces.push({
+            x: timestamps,
+            y: noise,
+            mode: "lines+markers",
+            name: `${channel.label} Noise Level`,
+            line: { color: colors[colorIndex] },
+            marker: { symbol: "circle", size: 8 },
+          });
+        }
+
+        for (let i = 0; i < outdoorChannels.length; i++) {
+          await processChannel(
+            outdoorChannels[i],
+            outdoorTraces,
+            noiseTraces,
+            i
+          );
+        }
+
+        Plotly.newPlot("outdoorChart", outdoorTraces, {
+          title: "Outdoor Air Quality Data Over Time",
+          xaxis: {
+            title: "Timestamp",
+            type: "date",
+            range: [new Date() - 2 * 24 * 60 * 60 * 1000, new Date()],
+            rangeslider: { visible: true },
+          },
+          yaxis: {
+            title: "Concentration (µg/m³)",
+            rangemode: "tozero",
+          },
+        });
+
+        Plotly.newPlot("noiseChart", noiseTraces, {
+          title: "Outdoor Noise Levels Over Time",
+          xaxis: {
+            title: "Timestamp",
+            type: "date",
+            range: [new Date() - 2 * 24 * 60 * 60 * 1000, new Date()],
+            rangeslider: { visible: true },
+          },
+          yaxis: {
+            title: "Noise Level (dB)",
+            rangemode: "tozero",
+          },
+        });
+      }
+
+      plotData();
+    </script>
+
+    <footer>
+      Created by <strong>Asritha Arroju</strong>, SPCRC Lab, @IIIT Hyderabad
+      <!-- <span style="color: black">&#10084;</span> -->
+    </footer>
+  </body>
+</html>
