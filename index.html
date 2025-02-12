@@ -48,7 +48,7 @@
       // Function to fetch data from ThingSpeak
       async function fetchData(channelID, apiKey) {
         try {
-          const url = `https://api.thingspeak.com/channels/${channelID}/feeds.json?api_key=${apiKey}&results=1000`;
+          const url = `https://api.thingspeak.com/channels/${channelID}/feeds.json?api_key=${apiKey}&results=8000`;
           const response = await fetch(url);
           if (!response.ok) {
             throw new Error(`HTTP error! Status: ${response.status}`);
