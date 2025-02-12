@@ -47,10 +47,18 @@
     <script>
       // Function to fetch data from ThingSpeak
       async function fetchData(channelID, apiKey) {
-        const url = `https://api.thingspeak.com/channels/${channelID}/feeds.json?api_key=${apiKey}&results=1000`;
-        const response = await fetch(url);
-        const data = await response.json();
-        return data.feeds || [];
+        try {
+          const url = `https://api.thingspeak.com/channels/${channelID}/feeds.json?api_key=${apiKey}&results=1000`;
+          const response = await fetch(url);
+          if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+          }
+          const data = await response.json();
+          return data.feeds || [];
+        } catch (error) {
+          console.error("Error fetching data for channel:", channelID, error);
+          return [];
+        }
       }
 
       function averageData(feeds) {
@@ -74,26 +82,26 @@
               averages[timeKeyStr] = { pm25: [], pm10: [], noise: [] };
             }
 
-            averages[timeKeyStr].pm25.push(parseFloat(feed.field3)); // PM2.5
-            averages[timeKeyStr].pm10.push(parseFloat(feed.field4)); // PM10
-            averages[timeKeyStr].noise.push(parseFloat(feed.field5)); // Noise (dB)
+            averages[timeKeyStr].pm25.push(parseFloat(feed.field6)); // PM2.5
+            averages[timeKeyStr].pm10.push(parseFloat(feed.field7)); // PM10
+            averages[timeKeyStr].noise.push(parseFloat(feed.field8)); // Noise (dB)
           }
         });
 
         // Calculate averages
         return Object.entries(averages).map(([time, values]) => ({
           created_at: time,
-          field3: values.pm25.length
+          field6: values.pm25.length
             ? (
                 values.pm25.reduce((a, b) => a + b) / values.pm25.length
               ).toFixed(2)
             : null,
-          field4: values.pm10.length
+          field7: values.pm10.length
             ? (
                 values.pm10.reduce((a, b) => a + b) / values.pm10.length
               ).toFixed(2)
             : null,
-          field5: values.noise.length
+          field8: values.noise.length
             ? (
                 values.noise.reduce((a, b) => a + b) / values.noise.length
               ).toFixed(2)
@@ -176,7 +184,7 @@
             const offlineStatus = isOffline(latestFeed.created_at)
               ? '<span class="offline">(OFFLINE)</span>'
               : "";
-            latestEntryDiv.innerHTML = `<strong>${channel.label} Latest Entry:</strong> PM2.5 - ${latestFeed.field3} µg/m³ | PM10 - ${latestFeed.field4} µg/m³ | Noise - ${latestFeed.field5} dB | Time - ${latestTime} ${offlineStatus}`;
+            latestEntryDiv.innerHTML = `<strong>${channel.label} Latest Entry:</strong> PM2.5 - ${latestFeed.field6} µg/m³ | PM10 - ${latestFeed.field7} µg/m³ | Noise - ${latestFeed.field8} dB | Time - ${latestTime} ${offlineStatus}`;
             document
               .getElementById("outdoorLatestEntries")
               .appendChild(latestEntryDiv);
@@ -190,9 +198,9 @@
           const timestamps = filteredFeeds.map(
             (feed) => new Date(feed.created_at)
           );
-          const pm25 = filteredFeeds.map((feed) => parseFloat(feed.field3));
-          const pm10 = filteredFeeds.map((feed) => parseFloat(feed.field4));
-          const noise = filteredFeeds.map((feed) => parseFloat(feed.field5));
+          const pm25 = filteredFeeds.map((feed) => parseFloat(feed.field6));
+          const pm10 = filteredFeeds.map((feed) => parseFloat(feed.field7));
+          const noise = filteredFeeds.map((feed) => parseFloat(feed.field8));
 
           outdoorTraces.push({
             x: timestamps,
@@ -236,7 +244,7 @@
           xaxis: {
             title: "Timestamp",
             type: "date",
-            range: [new Date() - 2 * 24 * 60 * 60 * 1000, new Date()],
+            range: [new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), new Date()],
             rangeslider: { visible: true },
           },
           yaxis: {
@@ -250,7 +258,7 @@
           xaxis: {
             title: "Timestamp",
             type: "date",
-            range: [new Date() - 2 * 24 * 60 * 60 * 1000, new Date()],
+            range: [new Date(Date.now() - 2 * 24 * 60 * 60 * 1000), new Date()],
             rangeslider: { visible: true },
           },
           yaxis: {
